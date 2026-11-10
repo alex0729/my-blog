@@ -214,8 +214,8 @@ function renderMarkdown(md) {
 
 const SITE_TITLE = 'my-blog';
 
-// 페인트 전에 저장된 테마 적용 (깜빡임 방지). 저장값 없으면 CSS의 prefers-color-scheme가 처리
-const THEME_BOOT = "<script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>";
+// 2026-11-09 → <time datetime="2026-11-09">2026.11.09</time>
+const timeTag = date => `<time datetime="${date}">${date.replace(/-/g, '.')}</time>`;
 
 function layout({ title, description = '', body, root }) {
   const pageTitle = title ? `${escapeHtml(title)} · ${SITE_TITLE}` : SITE_TITLE;
@@ -226,18 +226,15 @@ function layout({ title, description = '', body, root }) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${pageTitle}</title>${desc}
-${THEME_BOOT}
 <link rel="stylesheet" href="${root}static/style.css">
 </head>
 <body>
-<header class="site-header">
-<a class="site-title" href="${root}index.html">${SITE_TITLE}</a>
-<button class="theme-toggle" type="button" aria-label="다크 모드 전환" aria-pressed="false">◐</button>
+<header class="sign">
+<a class="sign-title" href="${root}index.html">${SITE_TITLE}</a>
 </header>
 <main>
 ${body}
 </main>
-<script src="${root}static/theme.js" defer></script>
 </body>
 </html>
 `;
@@ -245,8 +242,10 @@ ${body}
 
 function renderIndex(posts) {
   const items = posts.map(p => `<li>
-<a href="posts/${encodeURIComponent(p.slug)}.html">${escapeHtml(p.title)}</a>
-<time datetime="${p.date}">${p.date}</time>${p.description ? `\n<p>${escapeHtml(p.description)}</p>` : ''}
+${timeTag(p.date)}
+<div>
+<a href="posts/${encodeURIComponent(p.slug)}.html">${escapeHtml(p.title)}</a>${p.description ? `\n<p>${escapeHtml(p.description)}</p>` : ''}
+</div>
 </li>`);
   const list = posts.length ? `<ul class="post-list">\n${items.join('\n')}\n</ul>` : '<p>아직 글이 없습니다.</p>';
   return layout({ title: null, body: `<h1>최근 글</h1>\n${list}`, root: '' });
@@ -257,7 +256,7 @@ function renderPostPage(post) {
   const body = `<article>
 <header>
 <h1>${escapeHtml(post.title)}</h1>
-<time datetime="${post.date}">${post.date}</time>${tags}
+${timeTag(post.date)}${tags}
 </header>
 ${renderMarkdown(post.body)}
 </article>`;

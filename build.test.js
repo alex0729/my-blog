@@ -128,12 +128,18 @@ const opts = dir => ({ srcDir: path.join(dir, 'posts'), outDir: path.join(dir, '
 const post = (date, title, extra = '') => `---\ndate: ${date}\ntitle: ${title}\n${extra}---\n본문`;
 const read = (dir, f) => fs.readFileSync(path.join(dir, 'dist', f), 'utf8');
 
-test('layout: 공통 요소·escape', () => {
+test('layout: 공통 요소·escape, 세로 간판, 테마 전환 없음', () => {
   const html = b.layout({ title: 'T<', description: 'D"', body: '<p>x</p>', root: '../' });
   for (const s of ['<html lang="ko">', 'name="viewport"', '<title>T&lt;', 'content="D&quot;"',
-    'href="../static/style.css"', 'src="../static/theme.js"', 'class="theme-toggle"',
-    "localStorage.getItem('theme')", '<main>'])
+    'href="../static/style.css"', '<header class="sign">', '<a class="sign-title" href="../index.html">', '<main>'])
     assert.ok(html.includes(s), s);
+  for (const s of ['theme-toggle', 'theme.js', 'localStorage'])
+    assert.ok(!html.includes(s), `남아 있으면 안 됨: ${s}`);
+});
+
+test('renderIndex: 날짜를 제목 앞에, YYYY.MM.DD로 표시', () => {
+  const html = b.renderIndex([{ slug: 'a', title: 'A', date: '2026-11-09', description: '', tags: [] }]);
+  assert.match(html, /<time datetime="2026-11-09">2026\.11\.09<\/time>\s*<div>\s*<a href="posts\/a\.html">A<\/a>/);
 });
 
 test('build: 글·목록·static 생성, 최신순, draft 제외', () => {

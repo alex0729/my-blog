@@ -3,7 +3,7 @@
 Markdown 글(`posts/*.md`)을 정적 HTML 블로그(`dist/`)로 변환하는 프로젝트.
 
 - 프레임워크·npm 의존성 없음. **HTML + CSS + JavaScript(Node 표준 라이브러리)만** 사용
-- 디자인 목표: 깔끔함, 읽기 좋음, 다크 모드, 모바일 대응
+- 디자인 목표: 밤거리 세로 네온 간판 콘셉트 (검은 배경 + 네온 글자), 읽기 좋음, 모바일 대응
 
 ---
 
@@ -17,8 +17,8 @@ my-blog/
 ├── posts/            # 원본 글 (사람 작성)
 │   └── 2026-11-09-hello.md
 ├── static/
-│   ├── style.css     # 전체 스타일 (라이트/다크 변수)
-│   └── theme.js      # 다크 모드 토글
+│   ├── style.css     # 전체 스타일 (네온 색 변수, JS 없음)
+│   └── images/       # 글에서 쓰는 이미지
 └── dist/             # 빌드 결과물 (생성물)
     ├── index.html    # 글 목록 (날짜 내림차순)
     ├── posts/<slug>.html
@@ -87,11 +87,24 @@ draft: true                                  # 선택. true면 빌드 제외
 - 폰트: 시스템 스택만 (`-apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`). 웹폰트 로드 안 함
 - 색 대비 WCAG AA 이상 (본문 4.5:1)
 
-**다크 모드**
-- 색은 전부 CSS 변수 (`--bg`, `--fg`, `--muted`, `--accent`, `--code-bg`, `--border`)
-- 기본값: `prefers-color-scheme` 따름
-- 토글 버튼 → `<html data-theme="dark|light">` + `localStorage` 저장
-- 깜빡임 방지: `<head>`의 인라인 스크립트가 페인트 전에 `data-theme` 적용
+**네온 테마 (항상 검은 배경, 라이트 모드·테마 전환 없음)**
+- 색은 전부 CSS 변수
+
+| 변수 | 값 | 용도 |
+|---|---|---|
+| `--bg` | `#000000` | 배경 |
+| `--fg` | `#c9f8ff` | 본문 (연한 시안) |
+| `--bright` | `#f2feff` | 굵은 글씨 |
+| `--muted` | `#8b93c9` | 설명·태그·인용 |
+| `--pink` | `#ff3ea5` | 간판·링크·h3 |
+| `--cyan` | `#3ef4ff` | 글 제목 |
+| `--yellow` | `#ffe14d` | 날짜·h2·인라인 코드 |
+| `--line` | `#3ef4ff4d` | 구분선·테두리 |
+
+- 빛 효과(`text-shadow` 글로우)는 간판·글 제목·마우스 올린 링크에만. 본문에는 쓰지 않음
+- 간판: 넓은 화면(760px 이상)은 왼쪽 고정 세로 간판(`writing-mode: vertical-rl`), 좁은 화면은 위쪽 가로 간판
+- 움직임: 페이지를 열 때 간판이 한 번 깜빡이며 켜짐. `prefers-reduced-motion`이면 끔
+- 날짜 표시는 `2026.11.09` (`datetime` 속성은 `2026-11-09`)
 
 **모바일**
 - `<meta name="viewport" content="width=device-width, initial-scale=1">`
@@ -115,4 +128,4 @@ draft: true                                  # 선택. true면 빌드 제외
 
 1. `node build.test.js` 통과
 2. `node build.js` 에러 없음
-3. 미리보기에서 확인: 375px 폭 · 다크/라이트 양쪽 · 긴 코드 블록 · 표
+3. 미리보기에서 확인: 375px 폭 · 넓은 화면의 세로 간판 · 긴 코드 블록 · 표
