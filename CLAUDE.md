@@ -40,6 +40,10 @@ posts/*.md ──▶ front matter 파싱 ──▶ 필수값 검사 ──▶ md
 | 빌드 | `node build.js` |
 | 검증 | `node build.test.js` |
 | 미리보기 | `python3 -m http.server -d dist 8000` → http://localhost:8000 |
+| 배포 | `main`에 push → GitHub Actions(`.github/workflows/pages.yml`)가 테스트·빌드 후 Pages 배포 → https://alex0729.github.io/my-blog/ |
+
+- 저장소: https://github.com/alex0729/my-blog (공개). 커밋 이메일은 GitHub noreply 주소 (이 저장소 `git config user.email`)
+- 링크는 전부 상대 경로 → `/my-blog/` 하위 경로에서도 동작. 절대 경로(`/static/...`) 쓰지 않기
 
 - 환경: Node v26, Python 3.9 (2026-11-09 실측)
 
