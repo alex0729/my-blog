@@ -1,0 +1,6 @@
+# 빌드 결과물 (node build.js로 재생성)
+dist/
+dist.tmp/
+
+# macOS
+.DS_Store
