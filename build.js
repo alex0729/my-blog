@@ -216,6 +216,7 @@ const SITE_TITLE = 'my-blog';
 // 메인 카드에 올릴 미니 웹앱. 앱 하나 = 한 줄, 폴더는 apps/{slug}/
 const APPS = [
   { slug: 'pomodoro', title: '뽀모도로 타이머', description: '집중 25분 · 휴식 5분을 번갈아 세는 네온 타이머' },
+  { slug: 'doubling', title: 'Doubling', description: '방향키·스와이프로 같은 숫자를 합쳐 2048을 만드는 퍼즐' },
 ];
 
 // 2026-11-09 → <time datetime="2026-11-09">2026.11.09</time>

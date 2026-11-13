@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Doubling</title>
+<style>
+:root{--bg:#14161c;--board:#232733;--cell:#2e3341;--fg:#e8eaf0;--muted:#8b91a3;--accent:#ffb454}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif;padding:16px}
+main{width:min(440px,100%)}
+header{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+h1{margin:0 auto 0 0;font-size:2rem;letter-spacing:-.02em}
+.score{background:var(--board);border-radius:8px;padding:6px 14px;text-align:center;min-width:76px}
+.score span{display:block;font-size:.7rem;color:var(--muted);letter-spacing:.08em}
+.score b{font-size:1.25rem;font-variant-numeric:tabular-nums}
+button{background:var(--accent);color:#1a1a1a;border:0;border-radius:8px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer}
+button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+button:disabled{opacity:.4;cursor:default}
+.actions{display:flex;gap:8px}
+.hint{color:var(--muted);font-size:.85rem;margin:0 0 12px}
+.wrap{position:relative;touch-action:none}
+.board{background:var(--board);border-radius:12px;padding:10px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;aspect-ratio:1}
+.cell{border-radius:8px;background:var(--cell)}
+.tiles{position:absolute;inset:10px}
+.tile{position:absolute;z-index:1;width:calc((100% - 30px)/4);aspect-ratio:1;border-radius:8px;display:grid;place-items:center;font-weight:800;font-size:clamp(1.2rem,8vw,2.2rem);color:#14161c;font-variant-numeric:tabular-nums;transition:translate .1s ease-in-out}
+.tile.s{font-size:clamp(.95rem,6vw,1.6rem)}
+.tile.ghost{z-index:0}
+/* new/merged tiles wait for the slide (.1s) to finish, hidden meanwhile via backwards fill */
+.pop{animation:pop .15s .1s ease-out backwards}
+.bump{animation:bump .15s .1s ease-out backwards}
+@keyframes pop{from{opacity:0;scale:.3}}
+@keyframes bump{0%{opacity:0}1%{opacity:1;scale:1}50%{scale:1.15}}
+@media (prefers-reduced-motion:reduce){.tile{transition:none}.pop,.bump{animation:none}}
+.overlay{position:absolute;inset:0;z-index:5;border-radius:12px;background:rgba(20,22,28,.82);display:grid;place-content:center;gap:12px;text-align:center}
+.overlay p{margin:0;font-size:1.6rem;font-weight:800}
+dialog{background:var(--board);color:var(--fg);border:0;border-radius:12px;padding:20px;width:min(400px,calc(100% - 32px))}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog h2{margin:0 0 12px;font-size:1.3rem}
+dialog table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+dialog th,dialog td{padding:6px 8px;text-align:right}
+dialog th{color:var(--muted);font-weight:600;font-size:.8rem}
+dialog tr.me td{color:var(--accent);font-weight:700}
+dialog small{display:block;font-size:.7rem}
+dialog form{margin:12px 0 0;text-align:right}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Doubling</h1>
+    <div class="score"><span>점수</span><b id="score">0</b></div>
+    <div class="score"><span>최고</span><b id="best">0</b></div>
+  </header>
+  <p class="hint">방향키(또는 스와이프)로 타일을 밀어 같은 숫자를 합치세요. 목표: 2048 타일. ⌘/Ctrl+Z로 되돌리기.</p>
+  <div class="wrap" id="wrap">
+    <div class="board" aria-label="게임판"></div>
+    <div class="tiles" id="tiles"></div>
+    <div class="overlay" id="overlay" hidden>
+      <p id="msg" aria-live="polite"></p>
+      <button id="cont">계속하기</button>
+      <button id="retry">새 게임</button>
+    </div>
+  </div>
+  <p class="actions"><button id="new">새 게임</button><button id="undo" disabled>되돌리기</button><button id="show-records">기록</button></p>
+  <dialog id="records" aria-labelledby="rec-title">
+    <h2 id="rec-title">최고 기록</h2>
+    <table id="rec-table">
+      <thead><tr><th>순위</th><th>점수</th><th>최고 타일</th><th>날짜</th></tr></thead>
+      <tbody id="rec-body"></tbody>
+    </table>
+    <p id="rec-empty" hidden>아직 기록이 없습니다.</p>
+    <form method="dialog"><button>닫기</button></form>
+  </dialog>
+</main>
+<script>
+const N = 4, WIN = 2048, KEY = 'doubling-best', SLIDE_MS = 100;
+const $ = id => document.getElementById(id);
+// cells[pos] = { id, v, kind: 'pop' | 'bump' } or null; a tile keeps its id while it slides.
+const REC_KEY = 'doubling-records', REC_MAX = 10;
+let cells, score, won, gameId, uid = 0, ghosts = [], history = [], best = Number(load()) || 0;
+const els = new Map(); // tile id -> element
+
+function load() { try { return localStorage.getItem(KEY); } catch { return null; } }
+function save(v) { try { localStorage.setItem(KEY, v); } catch {} }
+const vals = () => cells.map(t => t ? t.v : 0);
+
+function loadRecords() {
+  try { const r = JSON.parse(localStorage.getItem(REC_KEY)); return Array.isArray(r) ? r : []; } catch { return []; }
+}
+
+// One entry per game (id = start time), kept at its peak score; list holds the top REC_MAX.
+function upsertRecord(recs, entry) {
+  const old = recs.find(r => r.id === entry.id);
+  if (old && old.score >= entry.score) return recs;
+  return [...recs.filter(r => r.id !== entry.id), entry].sort((a, b) => b.score - a.score).slice(0, REC_MAX);
+}
+
+function record() {
+  if (!score) return;
+  const recs = upsertRecord(loadRecords(), { id: gameId, score, tile: Math.max(...vals()) });
+  try { localStorage.setItem(REC_KEY, JSON.stringify(recs)); } catch {}
+}
+
+function showRecords() {
+  const recs = loadRecords();
+  $('rec-body').innerHTML = recs.map((r, i) => `<tr${r.id === gameId ? ' class="me"' : ''}><td>${i + 1}</td>`
+    + `<td>${Number(r.score)}</td><td>${Number(r.tile)}</td>`
+    + `<td>${new Date(Number(r.id)).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })}`
+    + `${r.id === gameId ? '<small>현재 게임</small>' : ''}</td></tr>`).join('');
+  $('rec-table').hidden = !recs.length;
+  $('rec-empty').hidden = recs.length > 0;
+  $('records').showModal();
+}
+
+// Slide one line toward index 0; each tile merges at most once per move.
+// from[k] = line positions that end up in output slot k (two entries = merge).
+function slideRow(row) {
+  const t = row.map((v, i) => [v, i]).filter(([v]) => v), out = [], from = [];
+  let pts = 0;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i + 1] && t[i][0] === t[i + 1][0]) {
+      out.push(t[i][0] * 2); pts += t[i][0] * 2; from.push([t[i][1], t[i + 1][1]]); i++;
+    } else { out.push(t[i][0]); from.push([t[i][1]]); }
+  }
+  while (out.length < N) out.push(0);
+  return { row: out, pts, from };
+}
+
+// Cell indices of each line, ordered in the direction tiles travel.
+function lines(dir) {
+  const L = [];
+  for (let a = 0; a < N; a++) {
+    const l = [];
+    for (let b = 0; b < N; b++) l.push(dir === 'left' || dir === 'right' ? a * N + b : b * N + a);
+    if (dir === 'right' || dir === 'down') l.reverse();
+    L.push(l);
+  }
+  return L;
+}
+
+function addTile() {
+  const empty = cells.map((t, i) => t ? -1 : i).filter(i => i >= 0);
+  if (!empty.length) return;
+  const i = empty[Math.floor(Math.random() * empty.length)];
+  cells[i] = { id: ++uid, v: Math.random() < 0.9 ? 2 : 4, kind: 'pop' };
+}
+
+function canMove() {
+  const g = vals();
+  for (let i = 0; i < N * N; i++) {
+    if (!g[i]) return true;
+    if (i % N < N - 1 && g[i] === g[i + 1]) return true;
+    if (i + N < N * N && g[i] === g[i + N]) return true;
+  }
+  return false;
+}
+
+function move(dir) {
+  if (!$('overlay').hidden) return;
+  const before = vals().join(), snap = snapshot();
+  ghosts = [];
+  for (const l of lines(dir)) {
+    const old = l.map(i => cells[i]);
+    const { row, pts, from } = slideRow(old.map(t => t ? t.v : 0));
+    const next = Array(N).fill(null);
+    from.forEach((src, k) => {
+      if (src.length === 1) next[k] = old[src[0]];
+      else {
+        // both source tiles slide in and vanish; a new merged tile appears on top
+        src.forEach(s => ghosts.push({ id: old[s].id, to: l[k] }));
+        next[k] = { id: ++uid, v: row[k], kind: 'bump' };
+      }
+    });
+    l.forEach((idx, k) => cells[idx] = next[k]);
+    score += pts;
+  }
+  if (vals().join() === before) return;
+  history.push(snap);
+  addTile();
+  if (score > best) { best = score; save(best); }
+  record();
+  render();
+  if (!won && cells.some(t => t && t.v === WIN)) { won = true; show('2048 달성!', true); }
+  else if (!canMove()) show('게임 오버');
+}
+
+// Tiles keep their ids, so surviving tiles slide back; kind '' = re-created tiles appear without animation.
+const snapshot = () => ({ cells: cells.map(t => t && { ...t, kind: '' }), score, won });
+
+function undo() {
+  const s = history.pop();
+  if (!s) return;
+  ({ cells, score, won } = s);
+  ghosts = [];
+  $('overlay').hidden = true;
+  render();
+}
+
+function show(text, canContinue = false) {
+  $('msg').textContent = text;
+  $('cont').hidden = !canContinue;
+  $('overlay').hidden = false;
+  (canContinue ? $('cont') : $('retry')).focus();
+}
+
+function color(v) {
+  const lvl = Math.log2(v);
+  return `hsl(${(190 - lvl * 26 + 720) % 360} 70% ${lvl > 11 ? 80 : 68}%)`;
+}
+
+function place(el, pos) {
+  el.style.translate = `calc(${pos % N} * (100% + 10px)) calc(${Math.floor(pos / N)} * (100% + 10px))`;
+}
+
+function render() {
+  const live = new Set();
+  cells.forEach((t, pos) => {
+    if (!t) return;
+    live.add(t.id);
+    let el = els.get(t.id);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = `tile ${t.kind}${t.v >= 1000 ? ' s' : ''}`;
+      el.style.background = color(t.v);
+      el.textContent = t.v;
+      els.set(t.id, el);
+      $('tiles').append(el);
+    }
+    place(el, pos);
+  });
+  for (const g of ghosts) {
+    const el = els.get(g.id);
+    if (!el) continue;
+    el.classList.add('ghost');
+    place(el, g.to);
+    els.delete(g.id);
+    setTimeout(() => el.remove(), SLIDE_MS);
+  }
+  ghosts = [];
+  for (const [id, el] of els) if (!live.has(id)) { el.remove(); els.delete(id); }
+  $('score').textContent = score;
+  $('best').textContent = best;
+  $('undo').disabled = !history.length;
+}
+
+function newGame() {
+  cells = Array(N * N).fill(null); score = 0; won = false; ghosts = []; history = []; gameId = Date.now();
+  $('tiles').replaceChildren(); els.clear();
+  addTile(); addTile();
+  $('overlay').hidden = true;
+  render();
+}
+
+document.querySelector('.board').innerHTML = '<div class="cell"></div>'.repeat(N * N);
+
+const KEYS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
+addEventListener('keydown', e => {
+  if ($('records').open) return;
+  if (KEYS[e.key]) { e.preventDefault(); move(KEYS[e.key]); }
+  else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+});
+
+let sx, sy;
+$('wrap').addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; });
+$('wrap').addEventListener('pointerup', e => {
+  const dx = e.clientX - sx, dy = e.clientY - sy;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 30) return;
+  move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+});
+
+$('new').onclick = $('retry').onclick = newGame;
+$('cont').onclick = () => { $('overlay').hidden = true; };
+$('undo').onclick = undo;
+$('show-records').onclick = showRecords;
+
+// Self-check of merge rules and slide mapping (see console).
+[[[2,2,2,2],[4,4,0,0],8,'0,1|2,3'],[[2,2,4,0],[4,4,0,0],4,'0,1|2'],[[0,2,0,2],[4,0,0,0],4,'1,3'],
+ [[4,0,4,4],[8,4,0,0],8,'0,2|3'],[[2,4,8,16],[2,4,8,16],0,'0|1|2|3']]
+  .forEach(([inp, exp, pts, from]) => {
+    const r = slideRow(inp);
+    console.assert(r.row.join() === exp.join() && r.pts === pts && r.from.join('|') === from, 'slideRow', inp, r);
+  });
+{
+  const e = (id, score) => ({ id, score, tile: 2 });
+  let r = upsertRecord(upsertRecord([], e(1, 10)), e(1, 5));
+  console.assert(r.length === 1 && r[0].score === 10, 'upsert keeps peak', r);
+  r = upsertRecord(r, e(1, 20));
+  console.assert(r.length === 1 && r[0].score === 20, 'upsert raises', r);
+  for (let i = 2; i <= 12; i++) r = upsertRecord(r, e(i, i));
+  console.assert(r.length === REC_MAX && r[0].score === 20 && r.at(-1).score === 4, 'top-N sorted', r);
+}
+
+newGame();
+</script>
+</body>
+</html>
