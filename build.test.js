@@ -124,7 +124,7 @@ function makeSite(posts) {
   for (const [name, src] of Object.entries(posts)) fs.writeFileSync(path.join(dir, 'posts', name), src);
   return dir;
 }
-const opts = dir => ({ srcDir: path.join(dir, 'posts'), outDir: path.join(dir, 'dist'), staticDir: path.join(dir, 'static') });
+const opts = dir => ({ srcDir: path.join(dir, 'posts'), outDir: path.join(dir, 'dist'), staticDir: path.join(dir, 'static'), appsDir: path.join(dir, 'apps') });
 const post = (date, title, extra = '') => `---\ndate: ${date}\ntitle: ${title}\n${extra}---\n본문`;
 const read = (dir, f) => fs.readFileSync(path.join(dir, 'dist', f), 'utf8');
 
@@ -156,6 +156,24 @@ test('build: 글·목록·static 생성, 최신순, draft 제외', () => {
   assert.ok(read(dir, 'posts/첫글.html').includes('<time datetime="2026-11-09">'));
   assert.ok(!fs.existsSync(path.join(dir, 'dist/posts/wip.html')));
   assert.ok(fs.existsSync(path.join(dir, 'dist/static/style.css')));
+});
+
+test('renderIndex: 웹앱 카드에 제목·설명·iframe, escape', () => {
+  const html = b.renderIndex([], [{ slug: 'x', title: 'X<', description: 'D"' }]);
+  for (const s of ['<ul class="app-list">', '<a href="apps/x/index.html">X&lt;</a>', '<p>D&quot;</p>',
+    '<iframe src="apps/x/index.html" title="X&lt;" loading="lazy">'])
+    assert.ok(html.includes(s), s);
+  assert.ok(!b.renderIndex([], []).includes('app-list'));
+});
+
+test('build: apps/ 복사, .md 작업 문서는 제외', () => {
+  const dir = makeSite({});
+  fs.mkdirSync(path.join(dir, 'apps/x'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'apps/x/index.html'), '<p>x</p>');
+  fs.writeFileSync(path.join(dir, 'apps/x/spec.md'), '# s');
+  b.build(opts(dir));
+  assert.ok(fs.existsSync(path.join(dir, 'dist/apps/x/index.html')));
+  assert.ok(!fs.existsSync(path.join(dir, 'dist/apps/x/spec.md')));
 });
 
 test('build: 이전 빌드 잔여 파일 제거', () => {

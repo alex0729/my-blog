@@ -213,6 +213,10 @@ function renderMarkdown(md) {
 // --- 템플릿 ---
 
 const SITE_TITLE = 'my-blog';
+// 메인 카드에 올릴 미니 웹앱. 앱 하나 = 한 줄, 폴더는 apps/{slug}/
+const APPS = [
+  { slug: 'pomodoro', title: '뽀모도로 타이머', description: '집중 25분 · 휴식 5분을 번갈아 세는 네온 타이머' },
+];
 
 // 2026-11-09 → <time datetime="2026-11-09">2026.11.09</time>
 const timeTag = date => `<time datetime="${date}">${date.replace(/-/g, '.')}</time>`;
@@ -240,7 +244,7 @@ ${body}
 `;
 }
 
-function renderIndex(posts) {
+function renderIndex(posts, apps = APPS) {
   const items = posts.map(p => `<li>
 ${timeTag(p.date)}
 <div>
@@ -248,7 +252,16 @@ ${timeTag(p.date)}
 </div>
 </li>`);
   const list = posts.length ? `<ul class="post-list">\n${items.join('\n')}\n</ul>` : '<p>아직 글이 없습니다.</p>';
-  return layout({ title: null, body: `<h1>최근 글</h1>\n${list}`, root: '' });
+  const cards = apps.map(a => {
+    const src = `apps/${encodeURIComponent(a.slug)}/index.html`;
+    return `<li class="app-card">
+<a href="${src}">${escapeHtml(a.title)}</a>
+<p>${escapeHtml(a.description)}</p>
+<iframe src="${src}" title="${escapeHtml(a.title)}" loading="lazy"></iframe>
+</li>`;
+  });
+  const appSection = apps.length ? `\n<h1>미니 웹앱</h1>\n<ul class="app-list">\n${cards.join('\n')}\n</ul>` : '';
+  return layout({ title: null, body: `<h1>최근 글</h1>\n${list}${appSection}`, root: '' });
 }
 
 function renderPostPage(post) {
@@ -269,6 +282,7 @@ function build({
   srcDir = path.join(__dirname, 'posts'),
   outDir = path.join(__dirname, 'dist'),
   staticDir = path.join(__dirname, 'static'),
+  appsDir = path.join(__dirname, 'apps'),
 } = {}) {
   if (!fs.existsSync(srcDir)) throw new Error(`posts 폴더 없음: ${srcDir}`);
 
@@ -295,6 +309,8 @@ function build({
     fs.mkdirSync(path.join(tmpDir, 'posts'), { recursive: true });
     for (const [rel, html] of pages) fs.writeFileSync(path.join(tmpDir, rel), html);
     if (fs.existsSync(staticDir)) fs.cpSync(staticDir, path.join(tmpDir, 'static'), { recursive: true });
+    // spec.md·review.md 같은 작업 문서는 배포하지 않음
+    if (fs.existsSync(appsDir)) fs.cpSync(appsDir, path.join(tmpDir, 'apps'), { recursive: true, filter: src => !/\.md$/i.test(src) });
   } catch (e) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     throw e;

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>뽀모도로 타이머</title>
+<style>
+  :root {
+    --bg: #000000;
+    --fg: #c9f8ff;
+    --muted: #8b93c9;
+    --pink: #ff3ea5;
+    --cyan: #3ef4ff;
+    --yellow: #ffe14d;
+    --line: #3ef4ff4d;
+    --glow-pink: 0 0 2px #fff8, 0 0 8px #ff3ea5, 0 0 22px #ff3ea5b3, 0 0 44px #ff3ea566;
+    --glow-cyan: 0 0 2px #fff6, 0 0 8px #3ef4ffcc, 0 0 22px #3ef4ff80;
+    --gap: 1rem;
+  }
+  body[data-phase="focus"] { --accent: var(--pink); --glow: var(--glow-pink); }
+  body[data-phase="break"] { --accent: var(--cyan); --glow: var(--glow-cyan); }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 16px;
+  }
+  main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--gap);
+  }
+  #label {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.5em;
+    padding-left: 0.5em; /* letter-spacing adds trailing space; balance it so the label stays centered */
+    color: var(--muted);
+    transition: color 0.3s;
+  }
+  body.running #label { color: var(--accent); }
+  #time {
+    margin: 0;
+    font-size: min(22vw, 32vh);
+    line-height: 1;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    text-shadow: var(--glow);
+    transition: color 0.3s;
+  }
+  .buttons { display: flex; gap: var(--gap); }
+  button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 1.5em;
+    font: inherit;
+    font-size: 1rem;
+    color: var(--fg);
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.3s;
+  }
+  #reset { border-color: var(--line); }
+  :focus-visible { outline: 2px solid var(--yellow); outline-offset: 3px; }
+
+  @media (max-height: 239px) {
+    :root { --gap: 0.4rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body data-phase="focus">
+<main>
+  <p id="label" aria-live="polite">집중</p>
+  <p id="time">25:00</p>
+  <div class="buttons">
+    <button type="button" id="toggle">시작</button>
+    <button type="button" id="reset">리셋</button>
+  </div>
+</main>
+<script>
+const FOCUS_MS = 25 * 60 * 1000;
+const BREAK_MS = 5 * 60 * 1000;
+
+const fast = new URLSearchParams(location.search).has('fast');
+const DURATION = { focus: fast ? 5000 : FOCUS_MS, break: fast ? 3000 : BREAK_MS };
+const NAME = { focus: '집중', break: '휴식' };
+const DEFAULT_TITLE = document.title;
+
+const labelEl = document.getElementById('label');
+const timeEl = document.getElementById('time');
+const toggleBtn = document.getElementById('toggle');
+const resetBtn = document.getElementById('reset');
+
+let phase = 'focus';
+let remaining = DURATION.focus;
+let endAt = 0;
+let timer = null;
+let ctx = null;
+let beep = null;
+
+function fmt(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+
+function render(ms) {
+  const t = fmt(ms);
+  timeEl.textContent = t;
+  if (timer) document.title = t + ' · ' + NAME[phase];
+}
+
+// Scheduled on the audio clock so it fires on time even when a background tab throttles setInterval.
+function scheduleBeep(sec) {
+  if (!ctx) return;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const t = ctx.currentTime + Math.max(0, sec);
+  osc.frequency.value = 880;
+  gain.gain.setValueAtTime(0.25, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + 0.4);
+  beep = osc;
+}
+
+function cancelBeep() {
+  if (!beep) return;
+  try { beep.stop(); } catch (e) {}
+  beep.disconnect();
+  beep = null;
+}
+
+function stopTimer() {
+  clearInterval(timer);
+  timer = null;
+  document.body.classList.remove('running');
+}
+
+function tick() {
+  const left = endAt - Date.now();
+  if (left <= 0) return finish();
+  render(left);
+}
+
+function finish() {
+  if (!timer) return; // guard: transition happens once even if a late tick and visibilitychange race
+  stopTimer();
+  beep = null; // already played by the audio clock
+  phase = phase === 'focus' ? 'break' : 'focus';
+  remaining = DURATION[phase];
+  document.body.dataset.phase = phase;
+  labelEl.textContent = NAME[phase];
+  toggleBtn.textContent = '시작';
+  render(remaining);
+  document.title = '끝! · ' + NAME[phase] + ' 시작';
+}
+
+function start() {
+  if (!ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) ctx = new AC();
+  }
+  if (ctx) ctx.resume();
+  endAt = Date.now() + remaining;
+  scheduleBeep(remaining / 1000);
+  timer = setInterval(tick, 250);
+  document.body.classList.add('running');
+  toggleBtn.textContent = '일시정지';
+  render(remaining);
+}
+
+function pause() {
+  if (endAt - Date.now() <= 0) return finish();
+  remaining = Math.max(0, endAt - Date.now());
+  stopTimer();
+  cancelBeep();
+  toggleBtn.textContent = '시작';
+  render(remaining);
+}
+
+toggleBtn.addEventListener('click', () => (timer ? pause() : start()));
+
+resetBtn.addEventListener('click', () => {
+  stopTimer();
+  cancelBeep();
+  remaining = DURATION[phase];
+  toggleBtn.textContent = '시작';
+  render(remaining);
+  document.title = DEFAULT_TITLE;
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && timer) tick();
+});
+
+render(remaining);
+</script>
+</body>
+</html>
